@@ -1,0 +1,60 @@
+name: Notes writer
+run-name: Notes ${{ inputs.operation }}
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Ledger operation
+        required: true
+        type: choice
+        options: [add, set-status, delete, bootstrap]
+      payload:
+        description: JSON request including request_id
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: notes-content-writer
+  cancel-in-progress: false
+  queue: max
+jobs:
+  write:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: notes-writer
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.10.9'
+      - uses: actions/create-github-app-token@v2
+        id: app
+        with:
+          app-id: ${{ secrets.NOTES_APP_ID }}
+          private-key: ${{ secrets.NOTES_APP_PRIVATE_KEY }}
+          permission-contents: write
+      - name: Configure isolated Git authentication
+        env:
+          APP_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          echo "GIT_CONFIG_COUNT=1" >> "$GITHUB_ENV"
+          echo "GIT_CONFIG_KEY_0=http.https://github.com/.extraheader" >> "$GITHUB_ENV"
+          auth=$(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          echo "GIT_CONFIG_VALUE_0=AUTHORIZATION: basic $auth" >> "$GITHUB_ENV"
+      - name: Apply transaction
+        env:
+          NOTES_OPERATION: ${{ inputs.operation }}
+          NOTES_PAYLOAD: ${{ inputs.payload }}
+          NOTES_REMOTE: https://github.com/${{ github.repository }}.git
+        run: uv run --frozen python -m notes_api.writer
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: notes-result
+          path: result.json
+          if-no-files-found: warn
+          retention-days: 7
