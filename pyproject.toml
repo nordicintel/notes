@@ -1,0 +1,22 @@
+[project]
+name = "nordicintel-notes"
+version = "0.1.0"
+description = "Git-backed notes for local agents"
+requires-python = ">=3.10"
+dependencies = ["markdown-it-py>=3,<5", "PyYAML>=6,<7"]
+
+[project.scripts]
+notes = "notes_api.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/notes_api"]
+
+[dependency-groups]
+dev = ["pytest>=8,<10"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
