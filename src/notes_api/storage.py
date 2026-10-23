@@ -21,7 +21,8 @@ def run(args, *, cwd=None, data=None, timeout=None):
     except OSError as exc:
         raise NotesError("command_unavailable", f"Cannot execute {args[0]}") from exc
     if result.returncode:
-        raise NotesError("command_failed", result.stderr.decode("utf-8", "replace").strip())
+        raise NotesError("command_failed", result.stderr.decode("utf-8", "replace").strip(),
+                         exit_code=result.returncode)
     return result.stdout
 
 

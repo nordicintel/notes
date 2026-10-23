@@ -64,9 +64,20 @@ def dispatch(repo, operation, payload, timeout):
             "payload_too_large", "Workflow inputs exceed the 65 KB dispatch limit")
     print(f"Request {request_id}: dispatching {operation}", file=sys.stderr)
     run_url = None
+    cause = None
     try:
-        response = json.loads(gh_api(f"repos/{repo}/actions/workflows/notes-writer.yml/dispatches",
-                                    {"ref": "main", "inputs": inputs}))
+        raw_response = gh_api(f"repos/{repo}/actions/workflows/notes-writer.yml/dispatches",
+                              {"ref": "main", "inputs": inputs})
+    except NotesError as exc:
+        http = re.search(r"\(HTTP (\d{3})\)", str(exc))
+        rejected = http and int(http[1]) in {400, 401, 403, 404, 405, 413, 422, 429}
+        if exc.code == "command_unavailable" or exc.details.get("exit_code") == 4 or rejected:
+            raise NotesError("dispatch_rejected", str(exc), request_id=request_id,
+                             cause=exc.as_dict()["error"]) from exc
+        raise NotesError("outcome_unknown", "Dispatch was not confirmed; retry with the same input and request ID",
+                         request_id=request_id, run_url=None, cause=exc.as_dict()["error"]) from exc
+    try:
+        response = json.loads(raw_response)
         run_id = response["workflow_run_id"]
         run_url = response.get("html_url", f"https://github.com/{repo}/actions/runs/{run_id}")
         print(run_url, file=sys.stderr)
@@ -82,10 +93,12 @@ def dispatch(repo, operation, payload, timeout):
                 with zipfile.ZipFile(io.BytesIO(raw)) as archive:
                     return json.loads(archive.read("result.json"))
             time.sleep(min(3, max(0, deadline - time.monotonic())))
-    except (NotesError, ValueError, KeyError, zipfile.BadZipFile):
-        pass
+    except NotesError as exc:
+        cause = exc.as_dict()["error"]
+    except (ValueError, KeyError, zipfile.BadZipFile) as exc:
+        cause = {"code": "invalid_response", "message": str(exc)}
     raise NotesError("outcome_unknown", "Write outcome is unknown; retry with the same input and request ID",
-                     request_id=request_id, run_url=run_url)
+                     request_id=request_id, run_url=run_url, cause=cause)
 
 
 def execute(args):
